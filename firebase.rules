@@ -1,0 +1,40 @@
+// firebase.rules
+// Recommended Firestore security rules (example). Adjust to your needs.
+// Deploy these via Firebase Console -> Firestore -> Rules or via CLI.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users: each user can read/write their own document
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+      // Do not allow clients to set arbitrary fields like createdAt to falsified values
+      // Production: enforce field types using request.resource.data keys and validation.
+    }
+
+    // Transactions: user can create a transaction where they are the fromUid (caller).
+    // This is an example; ideally transaction creation should be done by a trusted server.
+    match /transactions/{txId} {
+      allow create: if request.auth != null
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.currency == 'BDT'
+        && request.resource.data.timestamp == request.time;
+      // Allow read if user is a participant
+      allow read: if request.auth != null
+        && (request.auth.uid in request.resource.data.participants || request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid);
+      // Disallow updates/deletes from clients
+      allow update, delete: if false;
+    }
+
+    // Topups (demo)
+    match /topups/{topupId} {
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow read: if request.auth != null && (request.auth.uid == resource.data.uid);
+    }
+  }
+}
+
