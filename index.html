@@ -1,0 +1,63 @@
+// index.html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MyRocket — Demo Web Wallet</title>
+  <meta name="description" content="MyRocket — a demo bKash-style web wallet (Firebase+GitHub Pages). For learning/demo only." />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+  <meta name="theme-color" content="#071225"/>
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <!-- Optional Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app" class="app" aria-live="polite">
+    <!-- Top nav -->
+    <header class="topbar" role="banner">
+      <div class="brand">🚀 MyRocket</div>
+      <nav class="nav" aria-label="Main navigation">
+        <button class="nav-btn" data-route="#/dashboard">Dashboard</button>
+        <button class="nav-btn" data-route="#/send">Send</button>
+        <button class="nav-btn" data-route="#/receive">Receive</button>
+        <button class="nav-btn" data-route="#/tx">Transactions</button>
+        <button class="nav-btn" data-route="#/topup">Top-up</button>
+        <button class="nav-btn" data-route="#/profile">Profile</button>
+        <button id="auth-btn" class="nav-btn">Login</button>
+      </nav>
+    </header>
+
+    <!-- App shell -->
+    <main class="container" id="main" role="main">
+      <!-- SPA pages inserted here -->
+      <section id="page-root"></section>
+    </main>
+
+    <!-- Toasts -->
+    <div id="toast-container" aria-live="assertive" aria-atomic="true"></div>
+
+    <!-- Modals -->
+    <div id="modal-root" class="modal-root" aria-hidden="true"></div>
+
+    <!-- reCAPTCHA placeholder (for Firebase phone auth) -->
+    <div id="recaptcha-container" style="display:none"></div>
+
+    <!-- Hidden admin secret: keep in your dev only -->
+    <script>
+      // Admin demo secret (change before sharing publicly)
+      window.__MYROCKET_ADMIN_SECRET = "rocket-debug-2025"; // demo only
+    </script>
+
+    <!-- Firebase config placeholder (replace with your config) -->
+    <script src="firebase-config-sample.js"></script>
+
+    <!-- Firebase SDKs (modular) -->
+    <script type="module">
+      // Load our main app module
+      import './app.js';
+    </script>
+  </div>
+</body>
+</html>
