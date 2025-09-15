@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>WebRTC Call — Simple P2P (manual signaling)</title>
+<meta name="theme-color" content="#2c2c2c">
+<link rel="manifest" href="manifest.json">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family:Inter,system-ui,-apple-system; background:#0f1724; color:#e6eef8; padding:24px; min-height:100vh; box-sizing:border-box;}
+  .card { max-width:920px; margin:0 auto; background:#111827; border-radius:12px; padding:20px; box-shadow:0 8px 30px rgba(2,6,23,0.6);}
+  .video-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;}
+  video { width:100%; height:320px; background:black; border-radius:8px; border:1px solid #2b3440; object-fit:cover;}
+  textarea { width:100%; min-height:120px; background:#0b1220; color:#e6eef8; border:1px solid #23303f; padding:8px; border-radius:6px; font-family:monospace; font-size:13px;}
+  .btn { padding:10px 14px; border-radius:999px; font-weight:600; cursor:pointer; }
+  .btn-primary { background:#10b981; color:black; }
+  .btn-warn { background:#f43f5e; color:white; }
+  .muted { color:#9aa7b7; font-size:13px; }
+  .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .row { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+  .small { font-size:13px; color:#9fb0c6; }
+  .note { background:#071026; padding:10px; border-radius:8px; border:1px solid #122033; margin-top:12px; color:#9fb0c6; }
+  @media (max-width:800px){ .video-grid{grid-template-columns:1fr;} video{height:220px;} .grid-2{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1 class="text-2xl font-bold">WebRTC Calling App — Manual Signaling</h1>
+    <p class="muted">Open page in two tabs/devices. Use the buttons below to exchange Offer/Answer and ICE candidates (copy & paste).</p>
+
+    <div class="video-grid" style="margin-top:12px;">
+      <div>
+        <div class="small">Local (you)</div>
+        <video id="localVideo" autoplay muted playsinline></video>
+      </div>
+      <div>
+        <div class="small">Remote (other)</div>
+        <video id="remoteVideo" autoplay playsinline></video>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="startBtn" class="btn btn-primary">Start Camera & Mic</button>
+      <button id="createOfferBtn" class="btn" style="background:#64748b;color:white">Create Offer</button>
+      <button id="setRemoteBtn" class="btn" style="background:#94a3b8;color:black">Set Remote (paste SDP)</button>
+      <button id="createAnswerBtn" class="btn" style="background:#60a5fa;color:black">Create Answer</button>
+      <button id="addRemoteIceBtn" class="btn" style="background:#f59e0b;color:black">Add Remote ICEs</button>
+      <button id="hangupBtn" class="btn btn-warn" disabled>Hang Up</button>
+    </div>
+
+    <div style="margin-top:12px;" class="grid-2">
+      <div>
+        <label class="small">Local Output (copy this to send to other peer):</label>
+        <textarea id="localOutput" readonly placeholder="Local description & candidates will appear here"></textarea>
+        <div class="row" style="margin-top:6px;">
+          <button id="copyLocalBtn" class="btn" style="background:#06b6d4;color:black">Copy Local</button>
+          <button id="clearLocalBtn" class="btn" style="background:#334155;color:white">Clear</button>
+        </div>
+      </div>
+      <div>
+        <label class="small">Remote Input (paste what you received here):</label>
+        <textarea id="remoteInput" placeholder='Paste a JSON object like {"sdp":..., "candidates":[...]} then click "Set Remote (paste SDP)" or "Add Remote ICEs"'></textarea>
+        <div class="row" style="margin-top:6px;">
+          <button id="parseRemoteBtn" class="btn" style="background:#34d399;color:black">Parse Remote JSON</button>
+          <button id="pasteFromClipboardBtn" class="btn" style="background:#7c3aed;color:white">Paste Clipboard</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong>How to use (quick):</strong>
+      <ol style="margin-top:6px;">
+        <li>Click <em>Start Camera & Mic</em> on both peers (allow permission).</li>
+        <li>On caller: click <em>Create Offer</em>. Copy the Local Output and send it to other peer (via chat/email).</li>
+        <li>On receiver: paste that JSON into <em>Remote Input</em>, click <em>Set Remote (paste SDP)</em>, then <em>Create Answer</em>. Copy Local Output from receiver and send back to caller.</li>
+        <li>Both peers should also exchange ICE candidate JSON if shown (this app accumulates candidates & prints them in Local Output). Use <em>Add Remote ICEs</em> to import candidates.</li>
+      </ol>
+      <div style="margin-top:8px;" class="small">
+        Note: This uses only a STUN server (Google). For reliable calls behind strict NATs you need a TURN server (see notes below).
+      </div>
+    </div>
+
+    <div class="note" id="status">Status: Ready.</div>
+  </div>
+
+<script>
+(async function(){
+  const localVideo = document.getElementById('localVideo');
+  const remoteVideo = document.getElementById('remoteVideo');
+  const startBtn = document.getElementById('startBtn');
+  const createOfferBtn = document.getElementById('createOfferBtn');
+  const setRemoteBtn = document.getElementById('setRemoteBtn');
+  const createAnswerBtn = document.getElementById('createAnswerBtn');
+  const addRemoteIceBtn = document.getElementById('addRemoteIceBtn');
+  const hangupBtn = document.getElementById('hangupBtn');
+
+  const localOutput = document.getElementById('localOutput');
+  const remoteInput = document.getElementById('remoteInput');
+  const parseRemoteBtn = document.getElementById('parseRemoteBtn');
+  const pasteFromClipboardBtn = document.getElementById('pasteFromClipboardBtn');
+  const copyLocalBtn = document.getElementById('copyLocalBtn');
+  const clearLocalBtn = document.getElementById('clearLocalBtn');
+  const statusEl = document.getElementById('status');
+
+  // ICE / STUN config - you can add TURN here if you have one
+  const config = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' }
+      // If you have TURN, add { urls: 'turn:your.turn.server:3478', username:'user', credential:'pass' }
+    ]
+  };
+
+  let pc = null;
+  let localStream = null;
+  let remoteStream = null;
+  let gatheredLocalCandidates = []; // store local candidates to export
+  let pendingRemoteCandidates = []; // candidates received before remote desc set
+
+  const setStatus = (s) => { statusEl.textContent = 'Status: ' + s; };
+
+  function ensurePC(){
+    if (pc) return pc;
+    pc = new RTCPeerConnection(config);
+    gatheredLocalCandidates = [];
+    pendingRemoteCandidates = [];
+
+    pc.ontrack = (ev) => {
+      // attach first stream
+      remoteVideo.srcObject = ev.streams[0];
+      setStatus('Remote track received. Connected.');
+      hangupBtn.disabled = false;
+    };
+
+    pc.onicecandidate = (ev) => {
+      if (ev.candidate) {
+        // push the candidate
+        gatheredLocalCandidates.push(ev.candidate);
+        // update localOutput with current localDescription + candidates
+        updateLocalOutput();
+      } else {
+        // null candidate -> ICE gathering finished
+        updateLocalOutput();
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      setStatus('Connection state: ' + pc.connectionState);
+    };
+
+    // local stream tracks
+    if (localStream) {
+      localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+    }
+
+    return pc;
+  }
+
+  function updateLocalOutput(){
+    if (!pc) return;
+    const desc = pc.localDescription ? pc.localDescription.toJSON() : null;
+    const payload = { sdp: desc, candidates: gatheredLocalCandidates };
+    try {
+      localOutput.value = JSON.stringify(payload, null, 2);
+    } catch (e) {
+      localOutput.value = 'Error serializing local output';
+    }
+  }
+
+  startBtn.addEventListener('click', async () => {
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
+      localVideo.srcObject = localStream;
+      setStatus('Local media acquired.');
+      startBtn.disabled = true;
+    } catch (e) {
+      console.error(e);
+      setStatus('Could not get camera/mic — check permissions.');
+    }
+  });
+
+  createOfferBtn.addEventListener('click', async () => {
+    try {
+      ensurePC();
+      // ensure tracks are added (for cases where start pressed earlier)
+      if (localStream && pc.getSenders().length === 0) {
+        localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+      }
+      setStatus('Creating offer...');
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      // gatheredLocalCandidates will populate as onicecandidate fires
+      updateLocalOutput();
+      setStatus('Offer created. Copy Local Output and send to remote.');
+    } catch (e) {
+      console.error(e);
+      setStatus('Failed to create offer: ' + (e.message || e));
+    }
+  });
+
+  // Set remote SDP (can be offer or answer)
+  setRemoteBtn.addEventListener('click', async () => {
+    const text = remoteInput.value.trim();
+    if (!text) { setStatus('Paste remote JSON into Remote Input first.'); return; }
+    let obj;
+    try { obj = JSON.parse(text); } catch(e){ setStatus('Invalid JSON.'); return; }
+
+    try {
+      ensurePC();
+      // if obj.sdp present, set remote description
+      if (obj.sdp) {
+        const remoteDesc = obj.sdp;
+        await pc.setRemoteDescription(new RTCSessionDescription(remoteDesc));
+        setStatus('Remote description set.');
+        // if there are remote candidates included, add them
+        if (Array.isArray(obj.candidates) && obj.candidates.length>0) {
+          for (const c of obj.candidates) {
+            try {
+              await pc.addIceCandidate(c);
+            } catch (err) {
+              console.warn('addIceCandidate error (may be before setRemote):', err);
+            }
+          }
+          setStatus('Remote description and candidates set.');
+        }
+      } else {
+        setStatus('No sdp found in pasted JSON.');
+      }
+    } catch (e) {
+      console.error(e);
+      setStatus('Error setting remote description: ' + (e.message||e));
+    }
+  });
+
+  createAnswerBtn.addEventListener('click', async () => {
+    try {
+      ensurePC();
+      setStatus('Creating answer...');
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      updateLocalOutput();
+      setStatus('Answer created. Copy Local Output and send to caller.');
+    } catch (e) {
+      console.error(e);
+      setStatus('Failed to create answer: ' + (e.message||e));
+    }
+  });
+
+  // Add remote ICE candidates only (if remote sends candidates separately)
+  addRemoteIceBtn.addEventListener('click', async () => {
+    const text = remoteInput.value.trim();
+    if (!text) { setStatus('Paste JSON with candidates into Remote Input first.'); return; }
+    let obj;
+    try { obj = JSON.parse(text); } catch(e){ setStatus('Invalid JSON.'); return; }
+    if (!Array.isArray(obj.candidates)) { setStatus('No candidates array in JSON.'); return; }
+
+    try {
+      ensurePC();
+      for (const c of obj.candidates) {
+        await pc.addIceCandidate(c);
+      }
+      setStatus('Remote ICE candidates added.');
+    } catch (e) {
+      console.error(e);
+      setStatus('Error adding remote ICE: ' + (e.message||e));
+    }
+  });
+
+  // Parse remote JSON and nicer feedback
+  parseRemoteBtn.addEventListener('click', () => {
+    try {
+      const obj = JSON.parse(remoteInput.value || '{}');
+      const keys = Object.keys(obj);
+      setStatus('Parsed remote JSON. Keys: ' + keys.join(', '));
+    } catch(e){
+      setStatus('Invalid JSON: ' + e.message);
+    }
+  });
+
+  pasteFromClipboardBtn.addEventListener('click', async () => {
+    try {
+      const txt = await navigator.clipboard.readText();
+      remoteInput.value = txt;
+      setStatus('Pasted clipboard into Remote Input.');
+    } catch (e) {
+      setStatus('Clipboard read failed: ' + (e.message||e));
+    }
+  });
+
+  copyLocalBtn.addEventListener('click', async () => {
+    try {
+      localOutput.select();
+      const ok = document.execCommand('copy');
+      if (!ok) {
+        // fallback
+        await navigator.clipboard.writeText(localOutput.value);
+      }
+      setStatus('Local output copied to clipboard.');
+    } catch (e) {
+      setStatus('Copy failed: ' + (e.message||e));
+    }
+  });
+
+  clearLocalBtn.addEventListener('click', () => {
+    localOutput.value = '';
+    setStatus('Local output cleared.');
+  });
+
+  hangupBtn.addEventListener('click', () => {
+    if (pc) {
+      try { pc.getSenders().forEach(s => s.track && s.track.stop()); } catch(e){}
+      try { pc.close(); } catch(e){}
+      pc = null;
+    }
+    if (localStream) {
+      localStream.getTracks().forEach(t => t.stop());
+      localStream = null;
+      localVideo.srcObject = null;
+    }
+    remoteVideo.srcObject = null;
+    gatheredLocalCandidates = [];
+    localOutput.value = '';
+    remoteInput.value = '';
+    startBtn.disabled = false;
+    hangupBtn.disabled = true;
+    setStatus('Call ended and resources released.');
+  });
+
+  // enable hangup when pc established
+  // but we also set when remote track arrives
+  setInterval(() => {
+    if (pc && pc.connectionState && pc.connectionState !== 'closed') {
+      hangupBtn.disabled = false;
+    }
+  }, 2000);
+
+  // auto-fill localOutput if someone sets localDescription externally:
+  // we already updateLocalOutput in onicecandidate and after setLocalDescription.
+})();
+</script>
+</body>
+</html>
